@@ -56,7 +56,7 @@ def register_user(username, password):
         return False, f"Ошибка при регистрации: {e}"
 
 
-def login_user(username, password):
+def login(username, password):
     # вход пользователя
     conn = sqlite3.connect(NAME)
     cursor = conn.cursor()
@@ -79,26 +79,115 @@ def login_user(username, password):
 
 
 def item_request(name, count):
-    pass
-    # проверял, не работает)
     # ожидать подтверждения, после item_request_accept(name, count)
 
+    conn = sqlite3.connect(NAME)
+    cursor = conn.cursor()
 
-def item_request_accept(name, count):
-    # переводит из new в used по названию заданное кол-во
+    # просмотренная/одобренная 0-F 1-T
+    cursor.execute('''
+                CREATE TABLE IF NOT EXISTS item_request (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                count INTEGER,
+                is_viewed INTEGER DEFAULT 0,
+                is_confirmed INTEGER DEFAULT 0
+            )''')
+
+    try:
+        cursor.execute('INSERT INTO item_request (name, count) VALUES (?, ?)', (name, count))
+        conn.commit()
+        return True, "Ваша заявка успешно добавлена в список заявок"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Ошибка при работе с базой данных: {e}"
+    finally:
+        conn.close()
+
+
+def item_complaint(name, count):
+    # ожидать подтверждения, после turn_item_to_broken(name, count)
+
+    conn = sqlite3.connect(NAME)
+    cursor = conn.cursor()
+
+    # просмотренная/одобренная 0-F 1-T
+    cursor.execute('''
+                CREATE TABLE IF NOT EXISTS item_complaint (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                count INTEGER,
+                is_viewed INTEGER DEFAULT 0,
+                is_confirmed INTEGER DEFAULT 0
+            )''')
+
+    try:
+        cursor.execute('INSERT INTO item_request (name, count) VALUES (?, ?)', (name, count))
+        conn.commit()
+        return True, "Ваша заявка успешно добавлена в список заявок"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Ошибка при работе с базой данных: {e}"
+    finally:
+        conn.close()
+
+
+def item_request_accept(name, count, is_accept):
+    # is_accept True/False
+    conn = sqlite3.connect("sport_item.db")
+    cursor = conn.cursor()
+
+    if is_accept:
+        # переводит из new в used по названию заданное кол-во
+        # сделать просмотренные
+
+        try:
+            cursor.execute("SELECT new, used FROM items WHERE name = ?", (name,))
+            cursor.execute("SELECT new, used FROM items WHERE name = ?", (name,))
+            result = cursor.fetchone()
+            if result:
+                current_new, current_used = result
+                if current_new >= count:
+                    new_value = current_new - count
+                    used_value = current_used + count
+                    cursor.execute("UPDATE items SET new = ?, used = ? WHERE name = ?", (new_value, used_value, name))
+                    cursor.execute('UPDATE item_request SET is_confirmed = ? WHERE name = ?', (1, name))
+                    cursor.execute('UPDATE item_request SET is_viewed = ? WHERE name = ?', (1, name))
+                    conn.commit()
+                    return True, f"Переведено {count} шт. для '{name}'."
+                else:
+                    return False, f"Недостаточно элементов в столбце 'new' для '{name}'."
+            else:
+                return False, f"Предмет с именем '{name}' не найден."
+        except sqlite3.Error as e:
+            conn.rollback()
+            return False, f"Ошибка при работе с базой данных: {e}"
+        finally:
+            conn.close()
+    elif not is_accept:
+        cursor.execute('UPDATE item_request SET is_confirmed = ? WHERE name = ?', (0, name))
+        cursor.execute('UPDATE item_request SET is_viewed = ? WHERE name = ?', (1, name))
+        conn.commit()
+
+
+def turn_item_to_broken(name, count):
+    # переводит из new в broken по названию заданное кол-во
+    # сделать просмотренные
 
     conn = sqlite3.connect("sport_item.db")
     cursor = conn.cursor()
 
     try:
-        cursor.execute("SELECT new, used FROM items WHERE name = ?", (name,))
+        cursor.execute("SELECT new, broken FROM items WHERE name = ?", (name,))
+        cursor.execute("SELECT new, broken FROM items WHERE name = ?", (name,))
         result = cursor.fetchone()
         if result:
-            current_new, current_used = result
+            current_new, current_broken = result
             if current_new >= count:
                 new_value = current_new - count
-                used_value = current_used + count
-                cursor.execute("UPDATE items SET new = ?, used = ? WHERE name = ?", (new_value, used_value, name))
+                broken_value = current_broken + count
+                cursor.execute("UPDATE items SET new = ?, broken = ? WHERE name = ?", (new_value, broken_value, name))
+                cursor.execute('UPDATE item_request SET is_confirmed = ? WHERE name = ?', (1, name))
                 conn.commit()
                 return True, f"Переведено {count} шт. для '{name}'."
             else:
@@ -114,6 +203,7 @@ def item_request_accept(name, count):
 
 def add_item(name, count):
     # добавление предмета в бд
+
     conn = sqlite3.connect(NAME)
     cursor = conn.cursor()
 
@@ -132,8 +222,11 @@ def add_item(name, count):
         return False, f"Ошибка при добавлении: {e}"
 
 
+
 '''
 проверки, все работает
+
+print(item_request("fghj", 20))
 
 add_item("что-то", 40)
 print(add_item("что-то", 40))
