@@ -1,5 +1,5 @@
 import React from 'react';
-const HomePage = () => {
+const HomePageUser = () => {
     return (
         <>
             <h1>Привет!</h1>
@@ -7,4 +7,4 @@ const HomePage = () => {
         </>
     );
 };
-export default HomePage;
+export default HomePageUser;

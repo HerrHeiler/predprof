@@ -307,32 +307,57 @@ def attach_item_to_user(item_id: int, user_email: int, amount: int, email: str):
         return False, f'Ошибка при работе с бд {error}'
     return True
 
-
-def create_plan(text: str, items: list, amounts: list, prices: list, deadline: int, email: str):
-    if (not email) or (not items) or (not amounts) or (
-    not prices): return False, f'empty data {email, amounts, items, prices}'
-    if (not admin(email)[0]): return admin(email)[1]
-    if len(items) != len(prices) or len(items) != len(amounts): return False, f'разные длины списков'
-    start_date = datetime.datetime.timestamp(datetime.datetime.now())
-    if deadline <= start_date: return False, f'wrong values of data {start_date} >= {deadline}'
-    item_amount_price = {}
-    for i in range(len(items)):
-        item_amount_price[items[i]] = [amounts[i], prices[i]]
-    item_amount_price_str = json.dumps(item_amount_price, separators=(",", ":"))
-    connection = sqlite3.connect(path)
-    cursor = connection.cursor()
-    cursor.execute('SELECT MAX(id) FROM Users')
-    id = cursor.fetchone()[0] + 1
+@app.route('/plan', methods=['POST'])
+def create_plan():
     try:
+        # Получение данных из запроса
+        data = request.get_json()
+        text = data.get('text')
+        items = data.get('items', [])
+        amounts = data.get('amounts', [])
+        prices = data.get('prices', [])
+        deadline = data.get('deadline')
+        email = data.get('email')
+
+        # Проверка обязательных полей
+        if not email or not items or not amounts or not prices:
+            return jsonify(success=False, message=f"Empty data: {email, items, amounts, prices}"), 400
+
+        # Проверка пользователя-администратора
+        admin_status = admin(email)
+        if not admin_status[0]:
+            return jsonify(success=False, message=admin_status[1]), 403
+
+        # Проверка корректности данных
+        if len(items) != len(prices) or len(items) != len(amounts):
+            return jsonify(success=False, message="Длины списков items, amounts и prices не совпадают"), 400
+
+        start_date = datetime.datetime.timestamp(datetime.datetime.now())
+        if deadline <= start_date:
+            return jsonify(success=False, message=f"Неверное значение даты: {start_date} >= {deadline}"), 400
+
+        # Подготовка данных для сохранения
+        item_amount_price = {items[i]: [amounts[i], prices[i]] for i in range(len(items))}
+        item_amount_price_str = json.dumps(item_amount_price, separators=(",", ":"))
+
+        # Работа с базой данных
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        cursor.execute('SELECT MAX(id) FROM Purchases')
+        id = cursor.fetchone()[0] or 0
+        id += 1
+
         cursor.execute('BEGIN')
         cursor.execute(
             'INSERT INTO Purchases (id, text, item_amount_price, start_date, deadline) VALUES (?, ?, ?, ?, ?)',
-            (id, text, item_amount_price_str, start_date, deadline))
+            (id, text, item_amount_price_str, start_date, deadline)
+        )
         cursor.execute('COMMIT')
+        return jsonify(success=True, message="Запрос успешно создан"), 201
     except sqlite3.Error as error:
-        cursor.execute('ROLLBACK')
-        return False, f' database error {error}'
-    return True
+        return jsonify(success=False, message=f"Database error: {error}"), 500
+    except Exception as error:
+        return jsonify(success=False, message=f"Error: {error}"), 500
 
 
 def report(text: str, email: str):
