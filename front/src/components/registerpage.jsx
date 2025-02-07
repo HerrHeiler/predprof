@@ -1,31 +1,44 @@
 // RegisterPage.jsx
 import React, { useState } from "react";
+import { useNavigate } from 'react-router-dom';
 const RegisterPage = () => {
     const [FIO, setFIO] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [message, setMessage] = useState("");
-
+    const navigate = useNavigate(); 
+    
     const handleSubmit = async (e) => {
         e.preventDefault();
-    try {
-        const response = await fetch("http://localhost:5000/register", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ FIO, email, password }),
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        try {
+            const response = await fetch("http://localhost:5000/register", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ FIO, email, password }),
+            });
+
+            const data = await response.json();
+            
+            if (response.ok) {
+                setMessage(data.message);
+                navigate('/login'); // Добавлено перенаправление
+            } else {
+                setMessage(data.message);
+            }
+        
+        } catch(error) {
+            console.error("Ошибка при отправке", error)
+            setMessage("Произошла ошибка")
         }
-        const data = await response.json();
-        setMessage(data.message);
-    } catch(error) {
-        console.error("Ошибка при отправке", error)
-        setMessage("Произошла ошибка")
-    }
+        
+        
     };
+    const handleLoginRedirect = () => {
+        navigate('/login');
+    };
+    
 
     return (
         <div style={{
@@ -94,6 +107,27 @@ const RegisterPage = () => {
                         }}
                     />
                 </div>
+                <button
+                onClick={handleLoginRedirect}
+                style={{
+                    padding: "10px",
+                    fontSize: "16px",
+                    borderRadius: "5px",
+                    border: "1px solid #4CAF50",
+                    backgroundColor: "transparent",
+                    color: "#4CAF50",
+                    cursor: "pointer",
+                    marginTop: "15px",
+                    width: "300px",
+                    transition: "all 0.3s",
+                    ':hover': {
+                        backgroundColor: "#4CAF50",
+                        color: "white"
+                    }
+                }}
+            >
+                Уже есть аккаунт? Войти
+            </button>
                 <button
                     type="submit"
                     style={{

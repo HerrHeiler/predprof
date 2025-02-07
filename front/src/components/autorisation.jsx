@@ -1,32 +1,53 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useNavigate } from 'react-router-dom';
 
 const LoginPage = () => {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [message, setMessage] = useState("");
+    const navigate = useNavigate();
+
+    // Проверяем авторизацию при загрузке компонента (опционально)
+    useEffect(() => {
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            navigate('/homeadmin'); // Если токен есть, сразу перенаправляем
+        }
+    }, [navigate]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
             const response = await fetch("http://localhost:5000/login", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email, password }),
             });
 
             const data = await response.json();
 
             if (response.ok) {
-                setMessage(data.message); // Успешная авторизация
+                // Сохраняем токен и данные пользователя в localStorage
+                localStorage.setItem('authToken', data.token); // Если бэкенд возвращает токен
+                localStorage.setItem('userRole', data.role);
+                localStorage.setItem('userEmail', data.email);   
+                
+                setMessage(data.message);
+                if (data.role === 'user') {
+                    navigate('/homeuser');
+                } else {
+                    navigate('/homeadmin');
+                }
             } else {
-                setMessage(data.message); // Ошибка авторизации
+                setMessage(data.message);
             }
         } catch (error) {
             console.error("Ошибка при авторизации:", error);
             setMessage("Произошла ошибка при подключении к серверу.");
         }
+    };
+    const handleRegRedirect = () => {
+        navigate('/register');
     };
 
     return (
@@ -82,6 +103,27 @@ const LoginPage = () => {
                         }}
                     />
                 </div>
+                <button
+                onClick={handleRegRedirect}
+                style={{
+                    padding: "10px",
+                    fontSize: "16px",
+                    borderRadius: "5px",
+                    border: "1px solid #4CAF50",
+                    backgroundColor: "transparent",
+                    color: "#4CAF50",
+                    cursor: "pointer",
+                    marginTop: "15px",
+                    width: "300px",
+                    transition: "all 0.3s",
+                    ':hover': {
+                        backgroundColor: "#4CAF50",
+                        color: "white"
+                    }
+                }}
+            >
+                Нет аккаунта? Создать
+            </button>
                 <button
                     type="submit"
                     style={{

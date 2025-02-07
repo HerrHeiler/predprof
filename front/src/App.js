@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import HomePageUser from './components/Homepage_user';
 import RegisterPage from './components/registerpage';
 import LoginPage from './components/autorisation';
@@ -11,10 +11,21 @@ const App = () => {
   return (
     <Router>
       <Routes>
+        {/* Автоматическое перенаправление с корневого пути */}
+        <Route 
+          path="/" 
+          element={
+            localStorage.getItem('authToken') 
+              ? (localStorage.getItem('userRole') === 'admin' 
+                  ? <Navigate to="/homeadmin" replace /> 
+                  : <Navigate to="/homeuser" replace />)
+              : <Navigate to="/register" replace />
+          } 
+        />
         {/* Маршрут для главной страницы */}
         <Route path="/homeuser" element={<HomePageUser />} />
         {/* Маршрут для страницы регистрации */}
-        <Route path="/" element={<RegisterPage />} />
+        <Route path="/register" element={<RegisterPage />} />
         {/* Маршрут для страницы авторизации */}
         <Route path="/login" element={<LoginPage />} />
         {/* Маршрут для главной страницы админа */}
@@ -25,6 +36,8 @@ const App = () => {
         <Route path="/plans" element={<PlansBuy />} />
         {/* Маршрут для управления инвентарём админа*/}
         <Route path="/itemsadmin" element={<ItemsAdmin />} />
+        {/* Резервный маршрут для несуществующих страниц */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );

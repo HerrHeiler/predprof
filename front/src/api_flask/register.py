@@ -132,7 +132,7 @@ def authorization():
         # Подключение к базе данных
         connection = sqlite3.connect(path)
         cursor = connection.cursor()
-
+        
         # Проверка существования email
         cursor.execute('SELECT password FROM Users WHERE email = ?', (email,))
         result = cursor.fetchone()
@@ -143,8 +143,12 @@ def authorization():
         hashed_password = sha256(password.encode()).hexdigest()
         if hashed_password != result[0]:
             return {"success": False, "message": "Неверный пароль."}, 401
-
-        return {"success": True, "message": "Авторизация успешна."}, 200
+        cursor.execute('SELECT role FROM Users WHERE email = ?', (email,))
+        role = cursor.fetchone()[0]
+        return {"success": True, 
+                "message": "Авторизация успешна.",
+                "role": role}, 200
+        
     except Exception as e:
         # Обработка ошибок, связанных с базой данных
         return {"success": False, "message": f"Ошибка базы данных: {str(e)}"}, 500
@@ -206,17 +210,23 @@ def registration():
 
 
 # admin's functions
-
+@app.route('/login', methods=['POST'])
 def admin(email: str):
     """help function, checks that user is an admin"""
     connection = sqlite3.connect(path)
     cursor = connection.cursor()
     cursor.execute('SELECT role FROM Users WHERE email=?', (email,))
-    if cursor.fetchone() is None: return False, 'email не существует'
-    if cursor.fetchone()[0] != "admin": return False, 'не админ'
-    return True
+    result = cursor.fetchone()  # Сохраняем результат в переменную
+    
+    if not result:
+        return False, 'email не существует'
+    
+    role = result[0]  # Берем значение из сохраненного результата
+    if role != "admin": 
+        return False, 'не админ'
+    return True, 'Успешно'
 
-
+@app.route('/setitems', methods=['GET', 'POST'])
 def add_new_items(name: str, amount: int, email: str):
     """
     admin's function that adds new items to database
@@ -238,7 +248,7 @@ def add_new_items(name: str, amount: int, email: str):
         return False, f'Ошибка при добавлении инвентаря в базу данных {error}'
     return True
 
-
+@app.route('/setitems', methods=['GET', 'POST'])
 def delete_broken(user_email: int, item_id: int, amount: int, email: str):
     if (not user_email) or (not item_id) or (not amount): return False, f'empty data {user_email, amount, item_id}'
     if (not admin(email)[0]): return admin(email)[1]
@@ -260,7 +270,7 @@ def delete_broken(user_email: int, item_id: int, amount: int, email: str):
         return False, f'Ошибка при изменении поля инвентаря у пользователя в базе данных {error}'
     return True
 
-
+@app.route('/setitems', methods=['GET', 'POST'])
 def change_name(item_id: int, new_name: str, email: str):
     if (not email) or (not item_id) or (not new_name): return False, f'empty data {email, new_name, item_id}'
     if (not admin(email)[0]): return admin(email)[1]
@@ -278,7 +288,7 @@ def change_name(item_id: int, new_name: str, email: str):
         return False, f'Ошибка при изменении названия инвентаря {error}'
     return True
 
-
+@app.route('/setitems', methods=['GET', 'POST'])
 def attach_item_to_user(item_id: int, user_email: int, amount: int, email: str):
     if (not email) or (not item_id) or (not amount) or (
     not user_email): return False, f'empty data {email, amount, item_id, user_email}'
@@ -288,7 +298,7 @@ def attach_item_to_user(item_id: int, user_email: int, amount: int, email: str):
     cursor.execute('SELECT new, used FROM Items WHERE id=?', (item_id,))
     (db_new, db_used) = cursor.fetchone()
     if amount > db_new: return False, f'запрашиваемое значение {amount} больше существующего {db_new}'
-    db_used += amount;
+    db_used += amount
     db_new -= amount
     cursor.execute('SELECT list_of_items FROM Users WHERE email=?', (user_email))
     list_of_items = dict(json.loads(cursor.fetchone()[0]))
@@ -307,57 +317,64 @@ def attach_item_to_user(item_id: int, user_email: int, amount: int, email: str):
         return False, f'Ошибка при работе с бд {error}'
     return True
 
-@app.route('/plan', methods=['POST'])
-def create_plan():
-    try:
-        # Получение данных из запроса
+@app.route('/plan', methods=['GET', 'POST'])
+def manage_plans():
+    if request.method == 'POST':
+        # Обработка POST запроса для создания плана
         data = request.get_json()
         text = data.get('text')
-        items = data.get('items', [])
-        amounts = data.get('amounts', [])
-        prices = data.get('prices', [])
+        items = data.get('items')
+        amounts = data.get('amounts')
+        prices = data.get('prices')
         deadline = data.get('deadline')
         email = data.get('email')
 
-        # Проверка обязательных полей
-        if not email or not items or not amounts or not prices:
-            return jsonify(success=False, message=f"Empty data: {email, items, amounts, prices}"), 400
+        if (not email) or (not items) or (not amounts) or (not prices):
+            return jsonify(success=False, message='empty data'), 400
 
-        # Проверка пользователя-администратора
-        admin_status = admin(email)
-        if not admin_status[0]:
-            return jsonify(success=False, message=admin_status[1]), 403
 
-        # Проверка корректности данных
         if len(items) != len(prices) or len(items) != len(amounts):
-            return jsonify(success=False, message="Длины списков items, amounts и prices не совпадают"), 400
+            return jsonify(success=False, message='разные длины списков'), 400
 
         start_date = datetime.datetime.timestamp(datetime.datetime.now())
         if deadline <= start_date:
-            return jsonify(success=False, message=f"Неверное значение даты: {start_date} >= {deadline}"), 400
+            return jsonify(success=False, message='wrong values of data'), 400
 
-        # Подготовка данных для сохранения
-        item_amount_price = {items[i]: [amounts[i], prices[i]] for i in range(len(items))}
+        item_amount_price = {}
+        for i in range(len(items)):
+            item_amount_price[items[i]] = [amounts[i], prices[i]]
+
         item_amount_price_str = json.dumps(item_amount_price, separators=(",", ":"))
-
-        # Работа с базой данных
         connection = sqlite3.connect(path)
         cursor = connection.cursor()
         cursor.execute('SELECT MAX(id) FROM Purchases')
-        id = cursor.fetchone()[0] or 0
-        id += 1
+        result = cursor.fetchone()
+        if result[0] is None:
+            id = 1  # Если нет записей, начинаем с 1
+        else:
+            id = result[0] + 1  # Если есть записи, увеличиваем максимальный id на 1
 
-        cursor.execute('BEGIN')
-        cursor.execute(
-            'INSERT INTO Purchases (id, text, item_amount_price, start_date, deadline) VALUES (?, ?, ?, ?, ?)',
-            (id, text, item_amount_price_str, start_date, deadline)
-        )
-        cursor.execute('COMMIT')
-        return jsonify(success=True, message="Запрос успешно создан"), 201
-    except sqlite3.Error as error:
-        return jsonify(success=False, message=f"Database error: {error}"), 500
-    except Exception as error:
-        return jsonify(success=False, message=f"Error: {error}"), 500
+        try:
+            cursor.execute('BEGIN')
+            cursor.execute('INSERT INTO Purchases (id, text, item_amount_price, start_date, deadline) VALUES (?, ?, ?, ?, ?)',
+                           (id, text, item_amount_price_str, start_date, deadline))
+            cursor.execute('COMMIT')
+        except sqlite3.Error as error:
+            cursor.execute('ROLLBACK')
+            return jsonify(success=False, message="Ошибка при добавлении в базу данных"), 500
+
+        return jsonify(success=True), 200
+
+    elif request.method == 'GET':
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        cursor.execute('SELECT * FROM Purchases')
+        plans = cursor.fetchall()
+        
+        # Отладочная информация
+        print("Retrieved plans:", plans)
+
+        return jsonify(plans), 200
 
 
 def report(text: str, email: str):
@@ -367,7 +384,11 @@ def report(text: str, email: str):
     connection = sqlite3.connect(path)
     cursor = connection.cursor()
     cursor.execute('SELECT MAX(id) FROM Reports')
-    id = cursor.fetchone()[0] + 1
+    result = cursor.fetchone()
+    if result[0] is None:
+        id = 1  # Если нет записей, начинаем с 1
+    else:
+        id = result[0] + 1  # Если есть записи, увеличиваем максимальный id на 1
     try:
         cursor.execute('BEGIN')
         cursor.execute('INSERT INTO Reports (id, text, date) VALUES (?, ?, ?)', (id, text, date))
@@ -384,13 +405,16 @@ def user(email: str):
     """help function, checks that user is an admin"""
     connection = sqlite3.connect(path)
     cursor = connection.cursor()
-    info = cursor.execute('SELECT role FROM Users WHERE email=?', (email,))
-    if info.fetchone() is None:
+    cursor.execute('SELECT role FROM Users WHERE email=?', (email,))
+    result = cursor.fetchone()
+    
+    if not result:
         return False, 'email не существует'
-    if info.fetchone()[0] != "user":
+    
+    role = result[0]
+    if role != "user":
         return False, 'не пользователь'
-    return True
-
+    return True, 'Успешно'
 
 def view_attached_items(email: str):
     if (not user(email)[0]): return user(email)[1]
