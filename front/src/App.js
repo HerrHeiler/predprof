@@ -8,6 +8,7 @@ import Reports from './components/Reports';
 import PlansBuy from './components/PlansBuy';
 import ItemsAdmin from './components/ItemsAdmin';
 import ItemsUser from './components/ItemsUser';
+import RequestAdmin from './components/RequestAdmin.jsx';
 const App = () => {
   return (
     <Router>
@@ -41,6 +42,7 @@ const App = () => {
         <Route path="*" element={<Navigate to="/" replace />} />
         {/*Маршрут для создание заявок*/}
         <Route path="/itemsuser" element={<ItemsUser />} />
+        <Route path="/requestadmin" element={<RequestAdmin />} />
       </Routes>
     </Router>
   );

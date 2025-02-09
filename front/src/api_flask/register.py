@@ -726,21 +726,67 @@ def view_attached_items(email: str):
     return json.loads(cursor.fetchone()[0])
 
 
-def request_item(text: str, amount: int, item_id: int, email: str):
-    if (not user(email)[0]): return user(email)
-    if (not email) or (not amount) or (not item_id): return False, f'empty data {amount} {item_id} {email}'
-    connection = sqlite3.connect(path)
-    cursor = connection.cursor()
-    cursor.execute('SELECT MAX(id) FROM Requests')
-    id = cursor.fetchone()[0] + 1
+@app.route('/allrequests', methods=['GET'])
+def get_all_requests():
     try:
-        cursor.execute('BEGIN')
-        cursor.execute('INSERT INTO Requests (id, text, amount, item_id, user_email, status) VALUES (?, ?, ?, ?, ?, ?)',
-                       (id, text, amount, item_id, email, "unread"))
-        cursor.execute('COMMIT')
-    except sqlite3.Error as error:
-        cursor.execute('ROLLBACK')
-        return False, f'database error {error}'
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        
+        cursor.execute('''
+            SELECT r.id, r.text, r.amount, r.item_id, r.user_email, r.status, u.FIO, i.name 
+            FROM Requests r
+            LEFT JOIN Users u ON r.user_email = u.email
+            LEFT JOIN Items i ON r.item_id = i.id
+            ORDER BY r.id DESC
+        ''')
+        
+        requests = []
+        for row in cursor.fetchall():
+            requests.append({
+                'id': row[0],
+                'text': row[1],
+                'amount': row[2],
+                'item_id': row[3],
+                'user_email': row[4],
+                'status': row[5],
+                'user_name': row[6] or 'Неизвестный пользователь',
+                'item_name': row[7] or 'Удалённый предмет'
+            })
+            
+        return jsonify(success=True, requests=requests), 200
+        
+    except Exception as e:
+        return jsonify(success=False, message=str(e)), 500
+    finally:
+        if connection:
+            connection.close()
+
+@app.route('/requests/<int:request_id>', methods=['PUT'])
+def update_request_status(request_id):
+    try:
+        data = request.get_json()
+        new_status = data.get('status')
+        
+        if not new_status or new_status not in ['unread', 'approved', 'rejected']:
+            return jsonify(success=False, message='Некорректный статус'), 400
+
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        
+        cursor.execute('''
+            UPDATE Requests 
+            SET status = ?
+            WHERE id = ?
+        ''', (new_status, request_id))
+        
+        connection.commit()
+        return jsonify(success=True), 200
+        
+    except sqlite3.Error as e:
+        return jsonify(success=False, message=f"Ошибка базы данных: {str(e)}"), 500
+    finally:
+        if connection:
+            connection.close()
 
 
 def view_request_status(email: str):
@@ -751,6 +797,135 @@ def view_request_status(email: str):
     cursor.execute('SELECT list_of_items FROM Users WHERE email=?', (email))
     return json.loads(cursor.fetchone()[0])
 
+@app.route('/setuseritems', methods=['GET'])
+def get_user_items():
+    try:
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        cursor.execute('SELECT id, name, new FROM Items')
+        rows = cursor.fetchall()
+        
+        items = []
+        for row in rows:
+            items.append({
+                'id': row[0],
+                'name': f"{row[1]} (Доступно: {row[2]})",
+                'new': row[2]
+            })
+
+        connection.close()
+        return jsonify(success=True, items=items), 200
+    except Exception as e:
+        return jsonify(success=False, message=str(e)), 500
+
+@app.route('/requests', methods=['GET', 'POST'])
+def handle_requests():
+    if request.method == 'POST':
+        # Обработка создания заявки
+        data = request.get_json()
+        text = data.get('text')
+        amount = data.get('amount')
+        item_id = data.get('item_id')
+        email = data.get('email')
+
+        # Проверка авторизации
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify(success=False, message='Требуется авторизация'), 401
+        
+        # Проверка существования пользователя
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        cursor.execute('SELECT email FROM Users WHERE email = ?', (email,))
+
+        if not all([text, amount, item_id, email]):
+            return jsonify(success=False, message='Не заполнены обязательные поля'), 400
+
+        try:
+            # Проверка доступного количества
+            cursor.execute('SELECT new FROM Items WHERE id = ?', (item_id,))
+            item = cursor.fetchone()
+            if not item:
+                return jsonify(success=False, message='Предмет не найден'), 404
+                
+            available = item[0]
+            if int(amount) > available:
+                return jsonify(success=False, 
+                             message=f'Недостаточно предметов. Доступно: {available}'), 400
+
+            # Создание заявки
+            cursor.execute('SELECT MAX(id) FROM Requests')
+            request_id = (cursor.fetchone()[0] or 0) + 1
+            
+            cursor.execute('''
+                INSERT INTO Requests (id, text, amount, item_id, user_email, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (request_id, text, amount, item_id, email, 'unread'))
+            
+            connection.commit()
+            return jsonify(success=True), 200
+            
+        except sqlite3.Error as e:
+            connection.rollback()
+            return jsonify(success=False, message=f"Ошибка базы данных: {str(e)}"), 500
+        finally:
+            connection.close()
+
+    elif request.method == 'GET':
+        # Обработка получения заявок
+        try:
+            email = request.args.get('email')
+            if not email:
+                return jsonify(success=False, message='Не указан email'), 400
+
+            connection = sqlite3.connect(path)
+            cursor = connection.cursor()
+            
+            cursor.execute('''
+                SELECT r.id, r.text, r.amount, r.status, i.name 
+                FROM Requests r
+                JOIN Items i ON r.item_id = i.id
+                WHERE r.user_email = ?
+                ORDER BY r.id DESC
+            ''', (email,))
+            
+            requests = []
+            for row in cursor.fetchall():
+                requests.append({
+                    'id': row[0],
+                    'text': row[1],
+                    'amount': row[2],
+                    'status': row[3],
+                    'item_name': row[4]
+                })
+                
+            return jsonify(success=True, requests=requests), 200
+            
+        except Exception as e:
+            return jsonify(success=False, message=str(e)), 500
+        finally:
+            if connection:
+                connection.close()
+
+@app.route('/requests/<int:request_id>', methods=['DELETE'])
+def delete_request(request_id):
+    try:
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        
+        cursor.execute('DELETE FROM Requests WHERE id = ?', (request_id,))
+        connection.commit()
+        
+        if cursor.rowcount == 0:
+            return jsonify(success=False, message="Заявка не найдена"), 404
+            
+        return jsonify(success=True), 200
+        
+    except sqlite3.Error as e:
+        return jsonify(success=False, message=f"Ошибка базы данных: {str(e)}"), 500
+    finally:
+        if connection:
+            connection.close()
 
 if __name__ == "__main__":
     deploy_function("iiii", "pwoef@dsa.com", "200")

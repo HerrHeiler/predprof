@@ -5,7 +5,8 @@ import {
   LogoutOutlined, 
   ToolOutlined, 
   ShoppingCartOutlined, 
-  FileTextOutlined 
+  FileTextOutlined,
+  QuestionCircleOutlined
 } from '@ant-design/icons';
 
 const { Content, Header } = Layout;
@@ -18,8 +19,12 @@ const HomePageUser = () => {
   useEffect(() => {
     const token = localStorage.getItem('authToken');
     const role = localStorage.getItem('userRole');
-    const email = localStorage.getItem("userEmail")
-  })
+    const email = localStorage.getItem('userEmail');
+    
+    if (!token || role !== 'user') {
+      navigate('/login');
+    }
+  }, [navigate]);
 
   const handleNavigation = (path) => navigate(path);
 
@@ -57,7 +62,7 @@ const HomePageUser = () => {
           padding: 24,
           borderRadius: borderRadiusLG 
         }}>
-          <Card title="Упралвние" bordered={false}>
+          <Card title="Доступные действия" bordered={false}>
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
               <Button
                 type="primary"
@@ -65,10 +70,30 @@ const HomePageUser = () => {
                 block
                 icon={<ToolOutlined />}
                 onClick={() => handleNavigation('/itemsuser')}
-                style={{ height: 60, fontSize: 16 }}
+                style={{ 
+                  height: 60, 
+                  fontSize: 16,
+                  backgroundColor: '#1890ff'
+                }}
               >
-                Создание заявок на инвентарь
+                Заявки на инвентарь
               </Button>
+              {/* <Button
+                type="primary"
+                size="large"
+                block
+                icon={<QuestionCircleOutlined />}
+                onClick={() => handleNavigation('/help')}
+                style={{ 
+                  height: 60, 
+                  fontSize: 16,
+                  backgroundColor: '#ffc107',
+                  borderColor: '#ffc107',
+                  color: '#212529'
+                }}
+              >
+                Техническая поддержка
+              </Button> */}
             </Space>
           </Card>
         </div>

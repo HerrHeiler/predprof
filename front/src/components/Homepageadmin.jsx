@@ -5,7 +5,8 @@ import {
   LogoutOutlined, 
   ToolOutlined, 
   ShoppingCartOutlined, 
-  FileTextOutlined 
+  FileTextOutlined,
+  SolutionOutlined 
 } from '@ant-design/icons';
 
 const { Content, Header } = Layout;
@@ -18,7 +19,6 @@ const HomePageAdmin = () => {
   useEffect(() => {
     const token = localStorage.getItem('authToken');
     const role = localStorage.getItem('userRole');
-    const email = localStorage.getItem("userEmail")
     
     if (!token || role !== 'admin') {
       navigate('/login');
@@ -61,7 +61,7 @@ const HomePageAdmin = () => {
           padding: 24,
           borderRadius: borderRadiusLG 
         }}>
-          <Card title="Упралвние" bordered={false}>
+          <Card title="Управление" bordered={false}>
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
               <Button
                 type="primary"
@@ -72,6 +72,22 @@ const HomePageAdmin = () => {
                 style={{ height: 60, fontSize: 16 }}
               >
                 Управление Инвентарём
+              </Button>
+
+              <Button
+                type="primary"
+                size="large"
+                block
+                icon={<SolutionOutlined />}
+                onClick={() => handleNavigation('/requestadmin')}
+                style={{ 
+                  height: 60, 
+                  fontSize: 16,
+                  backgroundColor: '#1890ff',
+                  borderColor: '#1890ff'
+                }}
+              >
+                Заявки пользователей
               </Button>
 
               <Button
