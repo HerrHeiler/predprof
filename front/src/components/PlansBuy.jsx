@@ -1,73 +1,80 @@
 import React, { useState, useEffect } from "react";
 import { Table, Button, Modal, Form, Input, message } from "antd";
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, ExclamationCircleFilled } from '@ant-design/icons';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
 const { TextArea } = Input;
+const { confirm } = Modal;
 
 const PlansBuy = () => {
   const [plans, setPlans] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form] = Form.useForm();
   const navigate = useNavigate();
-  // Получение планов при загрузке компонента
+
   useEffect(() => {
     fetchPlans();
+    checkAuth();
   }, []);
+
+  const checkAuth = () => {
+    const token = localStorage.getItem('authToken');
+    const role = localStorage.getItem('userRole');
+    if (!token || role !== 'admin') navigate('/login');
+  };
 
   const fetchPlans = async () => {
     try {
-        const response = await axios.get('http://localhost:5000/plan');
-        const plansData = response.data; // Получаем данные
-
-        // Проверяем, что данные являются массивом
-        if (Array.isArray(plansData)) {
-            setPlans(plansData.map((plan, index) => ({
-                key: index,
-                text: plan[1], // Используем индекс для доступа к тексту
-                items: Object.keys(JSON.parse(plan[2])).join(', '), // Используем индекс для доступа к item_amount_price
-                amounts: Object.values(JSON.parse(plan[2])).map(i => i[0]).join(', '),
-                prices: Object.values(JSON.parse(plan[2])).map(i => i[1]).join(', '),
-                deadline: new Date(plan[4] * 1000).toLocaleDateString() // Используем индекс для доступа к deadline
-            })));
-        } else {
-            message.error('Полученные данные не являются массивом');
+      const response = await axios.get('http://localhost:5000/plan', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
         }
+      });
+
+      const formattedPlans = response.data.map((plan, index) => ({
+        key: plan[0],
+        id: plan[0],
+        text: plan[1],
+        items: Object.keys(JSON.parse(plan[2])).join(', '),
+        amounts: Object.values(JSON.parse(plan[2])).map(i => i[0]).join(', '),
+        prices: Object.values(JSON.parse(plan[2])).map(i => i[1]).join(', '),
+        deadline: new Date(plan[4] * 1000).toLocaleDateString()
+      }));
+      
+      setPlans(formattedPlans);
     } catch (error) {
-        if (error.response) {
-            message.error(`Ошибка сервера: ${error.response.data.message}`);
-        } else if (error.request) {
-            message.error('Нет ответа от сервера');
-        } else {
-            message.error('Ошибка настройки запроса');
-        }
+      handleError(error, 'Ошибка загрузки планов');
     }
-};
+  };
 
-  useEffect(() => {
-    const token = localStorage.getItem('authToken');
-    const role = localStorage.getItem('userRole');
-    
-    if (!token || role !== 'admin') {
-      navigate('/login');
-    }
-  }, [navigate]);
+  const handleDeletePlan = (planId) => {
+    confirm({
+      title: 'Удалить этот план закупок?',
+      icon: <ExclamationCircleFilled />,
+      content: 'Все данные будут удалены безвозвратно!',
+      okText: 'Удалить',
+      okType: 'danger',
+      cancelText: 'Отмена',
+      async onOk() {
+        try {
+          await axios.delete(`http://localhost:5000/plan/${planId}`, {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            }
+          });
+          message.success('План удален!');
+          fetchPlans();
+        } catch (error) {
+          handleError(error, 'Ошибка удаления плана');
+        }
+      }
+    });
+  };
 
   const handleSubmit = async (values) => {
     try {
-      const userEmail = localStorage.getItem('userEmail');
-      if (!userEmail) {
-        message.error('Ошибка авторизации ');
-        navigate('/login');
-        return;
-      }
-
       const deadlineDate = new Date(values.deadline);
-      if (isNaN(deadlineDate.getTime())) {
-        message.error('Неверный формат даты');
-        return;
-      }
       const deadlineTimestamp = Math.floor(deadlineDate.getTime() / 1000);
 
       const requestData = {
@@ -76,23 +83,13 @@ const PlansBuy = () => {
         amounts: values.amounts.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n)),
         prices: values.prices.split(',').map(n => parseFloat(n.trim())).filter(n => !isNaN(n)),
         deadline: deadlineTimestamp,
-        email: userEmail
+        email: localStorage.getItem('userEmail')
       };
 
-      if (
-        !requestData.text || 
-        requestData.items.length === 0 ||
-        requestData.amounts.length === 0 ||
-        requestData.prices.length === 0
-      ) {
-        message.error('Заполните все обязательные поля');
-        return;
-      }
-
+      // Валидация
       if (requestData.items.length !== requestData.amounts.length || 
           requestData.items.length !== requestData.prices.length) {
-        message.error('Количество элементов в полях должно совпадать');
-        return;
+        return message.error('Количество элементов должно совпадать');
       }
 
       const response = await axios.post('http://localhost:5000/plan', requestData, {
@@ -103,16 +100,21 @@ const PlansBuy = () => {
       });
 
       if (response.data.success) {
-        message.success('План успешно создан!');
+        message.success('План создан!');
         fetchPlans();
         setIsModalOpen(false);
         form.resetFields();
-      } else {
-        message.error('Ошибка при создании плана: ' + response.data.message);
       }
     } catch (error) {
-      console.error('Ошибка:', error);
-      message.error(`Ошибка создания плана: ${error.response?.data?.message || error.message}`);
+      handleError(error, 'Ошибка создания плана');
+    }
+  };
+
+  const handleError = (error, defaultMsg) => {
+    if (error.response) {
+      message.error(error.response.data.message || defaultMsg);
+    } else {
+      message.error(defaultMsg);
     }
   };
 
@@ -121,7 +123,18 @@ const PlansBuy = () => {
     { title: 'Предметы', dataIndex: 'items', key: 'items' },
     { title: 'Количество', dataIndex: 'amounts', key: 'amounts' },
     { title: 'Цены', dataIndex: 'prices', key: 'prices' },
-    { title: 'Срок', dataIndex: 'deadline', key: 'deadline' }
+    { title: 'Срок', dataIndex: 'deadline', key: 'deadline' },
+    {
+      title: 'Действия',
+      key: 'actions',
+      render: (_, record) => (
+        <Button
+          danger
+          icon={<DeleteOutlined />}
+          onClick={() => handleDeletePlan(record.id)}
+        />
+      ),
+    }
   ];
 
   return (
@@ -132,8 +145,9 @@ const PlansBuy = () => {
         onClick={() => navigate('/homeadmin')} 
         style={{ position: 'absolute', top: 20, right: 20 }}
       >
-        Перейти на главную
+        На главную
       </Button>
+      
       <Table 
         dataSource={plans} 
         columns={columns} 
@@ -172,12 +186,12 @@ const PlansBuy = () => {
             rules={[{ 
               required: true,
               validator: (_, value) => 
-                value && value.split(',').some(v => v.trim() !== '') ? 
+                value?.split(',').some(v => v.trim()) ? 
                 Promise.resolve() : 
-                Promise.reject('Введите хотя бы одно значение')
+                Promise.reject('Введите хотя бы один предмет')
             }]}
           >
-            <Input placeholder="Например: Мячи, Сетка, Форма" />
+            <Input placeholder="Мячи, Сетка, Форма" />
           </Form.Item>
 
           <Form.Item
@@ -186,12 +200,12 @@ const PlansBuy = () => {
             rules={[{ 
               required: true,
               validator: (_, value) => 
-                value && value.split(',').every(n => !isNaN(n.trim())) ? 
+                value?.split(',').every(n => !isNaN(n.trim())) ? 
                 Promise.resolve() : 
-                Promise.reject('Введите числа через запятую')
+                Promise.reject('Только числа через запятую')
             }]}
           >
-            <Input placeholder="Например: 10, 5, 20" />
+            <Input placeholder="10, 5, 20" />
           </Form.Item>
 
           <Form.Item
@@ -200,12 +214,12 @@ const PlansBuy = () => {
             rules={[{ 
               required: true,
               validator: (_, value) => 
-                value && value.split(',').every(n => !isNaN(n.trim())) ? 
+                value?.split(',').every(n => !isNaN(n.trim())) ? 
                 Promise.resolve() : 
-                Promise.reject('Введите числа через запятую')
+                Promise.reject('Только числа через запятую')
             }]}
           >
-            <Input placeholder="Например: 1500, 3000, 2000" />
+            <Input placeholder="1500, 3000, 2000" />
           </Form.Item>
 
           <Form.Item

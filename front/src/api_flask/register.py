@@ -52,7 +52,7 @@ def deploy_function(FIO: str, email: str, password: str):
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     new INTEGER,
-    used INTEGER,
+    used TEXT,  
     broken INTEGER
     )
     ''')
@@ -227,28 +227,259 @@ def admin(email: str):
     return True, 'Успешно'
 
 @app.route('/setitems', methods=['GET', 'POST'])
-def add_new_items(name: str, amount: int, email: str):
-    """
-    admin's function that adds new items to database
-    requires name and amount of items and email of user who wants to add
-    """
-    if (not name) or (not amount) or (not email): return False, f'empty data {name, amount, email}'
-    if (not admin(email)[0]): return admin(email)[1]
+def add_new_items():
+    if request.method == 'POST':
+        data = request.get_json()
+        name = data.get('name')
+        amount = data.get('amount')
+        email = data.get('email')
+
+        if not name or not amount or not email:
+            return jsonify(success=False, message='empty data'), 400
+
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        cursor.execute('SELECT MAX(id) FROM Items')
+        result = cursor.fetchone()
+        item_id = (result[0] + 1) if result[0] is not None else 1
+
+        try:
+            # Инициализируем used как JSON-массив
+            used_json = json.dumps([])
+            cursor.execute('BEGIN')
+            cursor.execute(
+                'INSERT INTO Items (id, name, new, used, broken) VALUES (?, ?, ?, ?, ?)',
+                (item_id, name, amount, used_json, 0)
+            )
+            cursor.execute('COMMIT')
+        except sqlite3.Error as error:
+            cursor.execute('ROLLBACK')
+            return jsonify(success=False, message=f"Ошибка при добавлении предмета: {str(error)}"), 500
+
+        # Получаем обновленный список предметов
+        cursor.execute('SELECT id, name, new, used, broken FROM Items')
+        rows = cursor.fetchall()
+        items = []
+        for row in rows:
+            items.append({
+                'id': row[0],
+                'name': row[1],
+                'new': row[2],
+                'used': row[3],  # Возвращаем сырую JSON строку
+                'broken': row[4]
+            })
+
+        connection.close()
+        return jsonify(success=True, items=items), 200
+
+    elif request.method == 'GET':
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        cursor.execute('SELECT id, name, new, used, broken FROM Items')
+        rows = cursor.fetchall()
+        
+        items = []
+        for row in rows:
+            items.append({
+                'id': row[0],
+                'name': row[1],
+                'new': row[2],
+                'used': row[3],  # Возвращаем сырую JSON строку
+                'broken': row[4]
+            })
+
+        connection.close()
+        return jsonify(success=True, items=items), 200
+    
+@app.route('/setitems', methods=['GET'])
+def get_items():
+    try:
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        cursor.execute('SELECT id, name, new, used, broken FROM Items')
+        rows = cursor.fetchall()
+        
+        items = []
+        for row in rows:
+            # Проверка и исправление формата used
+            used = row[3]
+            try:
+                json.loads(used)
+            except:
+                used = json.dumps([])
+            
+            items.append({
+                'id': row[0],
+                'name': row[1],
+                'new': row[2],
+                'used': used,
+                'broken': row[4]
+            })
+
+        connection.close()
+        return jsonify(success=True, items=items), 200
+    except Exception as e:
+        return jsonify(success=False, message=str(e)), 500
+
+@app.route('/users', methods=['GET'])
+def get_users():
+    try:
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        cursor.execute('SELECT email, FIO FROM Users WHERE role = "user"')
+        users = [{'email': row[0], 'name': row[1]} for row in cursor.fetchall()]
+        return jsonify(success=True, users=users), 200
+    except Exception as e:
+        return jsonify(success=False, message=str(e)), 500
+
+@app.route('/updateitem', methods=['PUT'])
+def update_item():
+    try:
+        data = request.get_json()
+        item_id = data.get('id')
+        name = data.get('name')
+        new_broken = data.get('broken')
+        used_users = data.get('used', [])
+
+        if not all([item_id, name, new_broken is not None]):
+            return jsonify(success=False, message='Не заполнены обязательные поля'), 400
+
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+
+        # Получаем текущие значения
+        cursor.execute('SELECT new, used, broken FROM Items WHERE id = ?', (item_id,))
+        result = cursor.fetchone()
+        if not result:
+            return jsonify(success=False, message='Предмет не найден'), 404
+
+        current_new = result[0]
+        current_used_raw = result[1]
+        current_broken = result[2]
+
+        # Парсинг used
+        try:
+            current_used = json.loads(current_used_raw) if current_used_raw else []
+        except:
+            current_used = []
+
+        # Валидация used
+        valid_used = []
+        total_used = 0
+        for user in used_users:
+            try:
+                email = str(user['email'])
+                amount = int(user['amount'])
+                if amount < 0: continue
+                valid_used.append({'email': email, 'amount': amount})
+                total_used += amount
+            except: continue
+
+        # Проверка used
+        used_diff = total_used - sum(u.get('amount', 0) for u in current_used)
+        if used_diff > current_new:
+            return jsonify(
+                success=False,
+                message=f'Недостаточно предметов для использования. Доступно: {current_new}'
+            ), 400
+
+        # Расчет изменений
+        broken_diff = new_broken - current_broken
+        if broken_diff > current_new:
+            return jsonify(
+                success=False,
+                message=f'Недостаточно новых предметов. Доступно: {current_new}, требуется: {broken_diff}'
+            ), 400
+
+        updated_new = current_new - used_diff - broken_diff
+        if updated_new < 0:
+            return jsonify(success=False, message='Отрицательное количество новых предметов'), 400
+
+        used_json = json.dumps(valid_used)
+
+        try:
+            cursor.execute('BEGIN')
+            # Обновляем запись
+            cursor.execute(
+                'UPDATE Items SET name=?, new=?, used=?, broken=? WHERE id=?',
+                (name, updated_new, used_json, new_broken, item_id)
+            )
+
+            # Обновляем пользователей
+            cursor.execute('SELECT email, list_of_items FROM Users')
+            for email, items_json in cursor.fetchall():
+                items = json.loads(items_json) if items_json else {}
+                if str(item_id) in items:
+                    del items[str(item_id)]
+                for user in valid_used:
+                    if user['email'] == email:
+                        items[str(item_id)] = user['amount']
+                cursor.execute(
+                    'UPDATE Users SET list_of_items=? WHERE email=?',
+                    (json.dumps(items), email)
+                )
+
+            cursor.execute('COMMIT')
+            return jsonify(success=True), 200
+
+        except sqlite3.Error as error:
+            cursor.execute('ROLLBACK')
+            return jsonify(success=False, message=f"Ошибка базы данных: {str(error)}"), 500
+        finally:
+            connection.close()
+
+    except Exception as e:
+        return jsonify(success=False, message=f"Ошибка сервера: {str(e)}"), 500
+    
+def migrate_existing_items():
     connection = sqlite3.connect(path)
     cursor = connection.cursor()
-    cursor.execute('SELECT MAX(id) FROM Items')
-    id = cursor.fetchone()[0] + 1
-    try:
-        cursor.execute('BEGIN')
-        cursor.execute('INSERT INTO Items (id, name, new, used, broken) VALUES (?, ?, ?, ?, ?)',
-                       (id, name, amount, 0, 0))
-        cursor.execute('COMMIT')
-    except sqlite3.Error as error:
-        cursor.execute('ROLLBACK')
-        return False, f'Ошибка при добавлении инвентаря в базу данных {error}'
-    return True
+    
+    cursor.execute('SELECT id, used FROM Items')
+    items = cursor.fetchall()
+    
+    for item_id, used in items:
+        try:
+            # Пробуем распарсить существующие данные
+            json.loads(used)
+        except:
+            # Если не JSON, преобразуем в новый формат
+            new_used = json.dumps([{'email': 'legacy', 'amount': int(used)}])
+            cursor.execute('UPDATE Items SET used=? WHERE id=?', (new_used, item_id))
+    
+    connection.commit()
+    connection.close()
 
-@app.route('/setitems', methods=['GET', 'POST'])
+@app.route('/items/<int:item_id>', methods=['DELETE'])
+def delete_item(item_id):
+    try:
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        
+        # Удаляем предмет
+        cursor.execute('DELETE FROM Items WHERE id = ?', (item_id,))
+        
+        # Удаляем упоминания у пользователей
+        cursor.execute('SELECT email, list_of_items FROM Users')
+        for email, items_json in cursor.fetchall():
+            items = json.loads(items_json) if items_json else {}
+            if str(item_id) in items:
+                del items[str(item_id)]
+                cursor.execute(
+                    'UPDATE Users SET list_of_items = ? WHERE email = ?',
+                    (json.dumps(items), email)
+                )
+        
+        connection.commit()
+        return jsonify(success=True), 200
+        
+    except sqlite3.Error as e:
+        connection.rollback()
+        return jsonify(success=False, message=f"Ошибка базы данных: {str(e)}"), 500
+    finally:
+        if connection:
+            connection.close()
+
 def delete_broken(user_email: int, item_id: int, amount: int, email: str):
     if (not user_email) or (not item_id) or (not amount): return False, f'empty data {user_email, amount, item_id}'
     if (not admin(email)[0]): return admin(email)[1]
@@ -270,7 +501,6 @@ def delete_broken(user_email: int, item_id: int, amount: int, email: str):
         return False, f'Ошибка при изменении поля инвентаря у пользователя в базе данных {error}'
     return True
 
-@app.route('/setitems', methods=['GET', 'POST'])
 def change_name(item_id: int, new_name: str, email: str):
     if (not email) or (not item_id) or (not new_name): return False, f'empty data {email, new_name, item_id}'
     if (not admin(email)[0]): return admin(email)[1]
@@ -288,7 +518,7 @@ def change_name(item_id: int, new_name: str, email: str):
         return False, f'Ошибка при изменении названия инвентаря {error}'
     return True
 
-@app.route('/setitems', methods=['GET', 'POST'])
+
 def attach_item_to_user(item_id: int, user_email: int, amount: int, email: str):
     if (not email) or (not item_id) or (not amount) or (
     not user_email): return False, f'empty data {email, amount, item_id, user_email}'
@@ -375,30 +605,101 @@ def manage_plans():
         print("Retrieved plans:", plans)
 
         return jsonify(plans), 200
-
-
-def report(text: str, email: str):
-    if (not email): return False, f'empty data {email}'
-    if (not admin(email)[0]): return admin(email)[1]
-    date = datetime.datetime.timestamp(datetime.datetime.now())
-    connection = sqlite3.connect(path)
-    cursor = connection.cursor()
-    cursor.execute('SELECT MAX(id) FROM Reports')
-    result = cursor.fetchone()
-    if result[0] is None:
-        id = 1  # Если нет записей, начинаем с 1
-    else:
-        id = result[0] + 1  # Если есть записи, увеличиваем максимальный id на 1
+    
+@app.route('/plan/<int:plan_id>', methods=['DELETE'])
+def delete_plan(plan_id):
     try:
-        cursor.execute('BEGIN')
-        cursor.execute('INSERT INTO Reports (id, text, date) VALUES (?, ?, ?)', (id, text, date))
-        cursor.execute('COMMIT')
-    except sqlite3.Error as error:
-        cursor.execute('ROLLBACK')
-        return False, f' database error {error}'
-    return True
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        
+        cursor.execute('DELETE FROM Purchases WHERE id = ?', (plan_id,))
+        connection.commit()
+        
+        if cursor.rowcount == 0:
+            return jsonify(success=False, message="План не найден"), 404
+            
+        return jsonify(success=True), 200
+        
+    except sqlite3.Error as e:
+        return jsonify(success=False, message=f"Ошибка базы данных: {str(e)}"), 500
+    finally:
+        if connection:
+            connection.close()
 
+@app.route('/reports', methods=['GET', 'POST'])
+def handle_reports():
+    if request.method == 'POST':
+        data = request.get_json()
+        text = data.get('text')
+        email = data.get('email')  # Автоматически из токена
 
+        if not text or len(text) < 10:
+            return jsonify(success=False, message="Текст отчета слишком короткий"), 400
+
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        
+        try:
+            # ID generation
+            cursor.execute('SELECT MAX(id) FROM Reports')
+            report_id = (cursor.fetchone()[0] or 0) + 1
+            
+            # Insert report
+            cursor.execute('''
+                INSERT INTO Reports (id, text, date)
+                VALUES (?, ?, ?)
+            ''', (report_id, text, datetime.datetime.now().timestamp()))
+            
+            connection.commit()
+            return jsonify(success=True), 200
+            
+        except sqlite3.Error as e:
+            connection.rollback()
+            return jsonify(success=False, message=f"Database error: {str(e)}"), 500
+        finally:
+            connection.close()
+
+    elif request.method == 'GET':
+        try:
+            connection = sqlite3.connect(path)
+            cursor = connection.cursor()
+            cursor.execute('SELECT id, text, date FROM Reports ORDER BY date DESC')
+            
+            reports = []
+            for row in cursor.fetchall():
+                reports.append({
+                    'id': row[0],
+                    'text': row[1],
+                    'date': row[2]
+                })
+                
+            return jsonify(success=True, reports=reports), 200
+            
+        except Exception as e:
+            return jsonify(success=False, message=str(e)), 500
+        finally:
+            if connection:
+                connection.close()
+
+@app.route('/reports/<int:report_id>', methods=['DELETE'])
+def delete_report(report_id):
+    try:
+        connection = sqlite3.connect(path)
+        cursor = connection.cursor()
+        
+        cursor.execute('DELETE FROM Reports WHERE id = ?', (report_id,))
+        connection.commit()
+        
+        if cursor.rowcount == 0:
+            return jsonify(success=False, message="Отчет не найден"), 404
+            
+        return jsonify(success=True), 200
+        
+    except sqlite3.Error as e:
+        return jsonify(success=False, message=f"Ошибка базы данных: {str(e)}"), 500
+    finally:
+        if connection:
+            connection.close()
 # users' functions
 
 def user(email: str):
@@ -453,4 +754,5 @@ def view_request_status(email: str):
 
 if __name__ == "__main__":
     deploy_function("iiii", "pwoef@dsa.com", "200")
+    migrate_existing_items()
     app.run(debug=True, host='0.0.0.0', port=5000)
