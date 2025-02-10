@@ -1,0 +1,16 @@
+{
+  "dependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.0",
+    "fstream": "^1.0.12",
+    "fstream-ignore": "^1.0.5",
+    "glob": "^11.0.1",
+    "inflight": "^1.0.6",
+    "npm": "^11.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "rimraf": "^6.0.1",
+    "web-vitals": "^4.2.4"
+  }
+}
