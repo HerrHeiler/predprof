@@ -15,7 +15,6 @@ const { Title } = Typography;
 const HomePageUser = () => {
   const navigate = useNavigate();
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken();
-
   useEffect(() => {
     const token = localStorage.getItem('authToken');
     const role = localStorage.getItem('userRole');

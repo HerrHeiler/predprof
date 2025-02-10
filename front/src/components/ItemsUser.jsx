@@ -3,6 +3,7 @@ import { Table, Button, Modal, Form, Input, message, Select } from "antd";
 import { PlusOutlined, DeleteOutlined, ExclamationCircleFilled } from '@ant-design/icons';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import LocaleProvider from "antd/es/locale";
 
 const { TextArea } = Input;
 const { Option } = Select;
@@ -15,7 +16,7 @@ const ItemsUser = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-
+  const userEmail = localStorage.getItem('userEmail')
   useEffect(() => {
     fetchRequests();
     fetchItems();
@@ -25,7 +26,6 @@ const ItemsUser = () => {
   const checkAuth = () => {
     const token = localStorage.getItem('authToken');
     const role = localStorage.getItem('userRole');
-    const userEmail = localStorage.getItem('userEmail')
     if (!token || role !== 'user') navigate('/login');
   };
 

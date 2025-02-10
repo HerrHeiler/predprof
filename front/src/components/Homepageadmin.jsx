@@ -15,7 +15,9 @@ const { Title } = Typography;
 const HomePageAdmin = () => {
   const navigate = useNavigate();
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken();
-
+  const userEmail = localStorage.getItem('userEmail')
+  console.log("Вот и эмайл:")
+  console.log(userEmail)
   useEffect(() => {
     const token = localStorage.getItem('authToken');
     const role = localStorage.getItem('userRole');

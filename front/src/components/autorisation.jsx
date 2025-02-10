@@ -25,12 +25,14 @@ const LoginPage = () => {
             });
 
             const data = await response.json();
-
             if (response.ok) {
                 // Сохраняем токен и данные пользователя в localStorage
                 localStorage.setItem('authToken', data.token); // Если бэкенд возвращает токен
                 localStorage.setItem('userRole', data.role);
-                localStorage.setItem('userEmail', data.email);   
+                localStorage.setItem('userEmail', data.email); 
+                const userEmail = localStorage.getItem('userR')
+                console.log("вф21112к1к1к:")
+                console.log(userEmail)
                 
                 setMessage(data.message);
                 if (data.role === 'user') {

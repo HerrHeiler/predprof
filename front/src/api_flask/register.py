@@ -21,7 +21,7 @@ path = 'db/inventory_managment.db'
 
 def deploy_function(FIO: str, email: str, password: str):
     """
-    Deploy function creates Users', Items', Requests', Complaints', Purchases', and Reports' tables.
+    Deploy function creates Users', Items', Requests', Purchases', and Reports' tables.
     Requires the first admin's data.
     """
     # Создаём папку для базы данных, если её нет
@@ -64,16 +64,6 @@ def deploy_function(FIO: str, email: str, password: str):
     amount INTEGER,
     item_id INTEGER,
     user_email TEXT NOT NULL,
-    status TEXT NOT NULL
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS Complaints (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    text TEXT NOT NULL,
-    amount INTEGER,
-    item_id INTEGER,
     status TEXT NOT NULL
     )
     ''')
@@ -147,7 +137,8 @@ def authorization():
         role = cursor.fetchone()[0]
         return {"success": True, 
                 "message": "Авторизация успешна.",
-                "role": role}, 200
+                "role": role,
+                "email": email}, 200
         
     except Exception as e:
         # Обработка ошибок, связанных с базой данных
